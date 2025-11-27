@@ -30,7 +30,7 @@ class DataManager:
 
     def _create_table(self):
         """
-        Cria a tabela 'compromissos' com a nova estrutura de 6 campos.
+        Cria a tabela 'compromissos' com a nova estrutura de 7 campos.
         (Remover o arquivo agenda.db antigo é ESSENCIAL para que esta nova estrutura seja criada!)
         """
         self.cursor.execute("""
@@ -41,18 +41,20 @@ class DataManager:
                 nome_cliente TEXT NOT NULL,          
                 tipo_visita TEXT NOT NULL,          
                 local_visita TEXT NOT NULL,          
+                endereco TEXT,                      
+                quem_vai TEXT,                      
                 observacoes TEXT                     
             );
         """)
         self.conn.commit()
     
-    def add_compromisso(self, data, hora, nome_cliente, tipo_visita, local_visita, observacoes):
+    def add_compromisso(self, data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes):
         """ Adiciona um novo agendamento com todos os detalhes. """
         try:
             self.cursor.execute("""
-                INSERT INTO compromissos (data, hora, nome_cliente, tipo_visita, local_visita, observacoes)
-                VALUES (?, ?, ?, ?, ?, ?);
-            """, (data, hora, nome_cliente, tipo_visita, local_visita, observacoes))
+                INSERT INTO compromissos (data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+            """, (data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes))
             self.conn.commit()
             return self.cursor.lastrowid
         except Exception as e:
@@ -62,7 +64,7 @@ class DataManager:
     def get_compromissos_by_date(self, data):
         """ Retorna todos os compromissos para a data, incluindo os novos campos. """
         self.cursor.execute("""
-            SELECT id, hora, nome_cliente, tipo_visita, local_visita, observacoes 
+            SELECT id, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes 
             FROM compromissos 
             WHERE data = ?
             ORDER BY hora ASC;
@@ -84,21 +86,21 @@ class DataManager:
     def get_compromisso_by_id(self, compromisso_id):
         """ Retorna todos os detalhes de um compromisso pelo seu ID. """
         self.cursor.execute("""
-            SELECT data, hora, nome_cliente, tipo_visita, local_visita, observacoes 
+            SELECT data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes 
             FROM compromissos 
             WHERE id = ?;
         """, (compromisso_id,))
         # Retorna o primeiro (e único) resultado
         return self.cursor.fetchone()
 
-    def update_compromisso(self, compromisso_id, data, hora, nome_cliente, tipo_visita, local_visita, observacoes):
+    def update_compromisso(self, compromisso_id, data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes):
         """ Atualiza um compromisso existente no banco de dados. """
         try:
             self.cursor.execute("""
                 UPDATE compromissos
-                SET data=?, hora=?, nome_cliente=?, tipo_visita=?, local_visita=?, observacoes=?
+                SET data=?, hora=?, nome_cliente=?, tipo_visita=?, local_visita=?, endereco=?, quem_vai=?, observacoes=?
                 WHERE id=?;
-            """, (data, hora, nome_cliente, tipo_visita, local_visita, observacoes, compromisso_id))
+            """, (data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes, compromisso_id))
             self.conn.commit()
             return True
         except Exception as e:

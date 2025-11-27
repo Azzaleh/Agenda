@@ -80,8 +80,9 @@ QSS_STYLES = """
     }
     
     QListWidget::item {
-        padding: 8px;
+        padding: 10px;
         border-bottom: 1px solid #f0f0f0;
+        font-size: 11pt;
     }
     
     /* Botões de Ação (Estilo Base) */
@@ -156,17 +157,91 @@ def _apply_shadow(widget, blur_radius=15, color_alpha=80):
     shadow.setColor(QColor(0, 0, 0, color_alpha))
     widget.setGraphicsEffect(shadow)
 
+# --- WIDGET PERSONALIZADO PARA O ITEM DA LISTA (3 LINHAS DE LAYOUT) ---
+
+class AppointmentItemWidget(QWidget):
+    def __init__(self, hora, nome_cliente, tipo_visita, local_visita, observacoes, endereco, quem_vai, parent=None):
+        super().__init__(parent)
+        
+        # O layout principal do item será vertical
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(5, 5, 5, 5) 
+        main_layout.setSpacing(4) 
+
+        # Estilos comuns
+        title_style = 'font-weight: bold; color: #333333; margin-right: 5px;'
+        content_style = 'font-size: 10pt;'
+
+        # 1. LINHA PRINCIPAL (HORA E CLIENTE)
+        main_line = QHBoxLayout()
+        main_line.setSpacing(15) 
+        
+        hour_label = QLabel(f'<b><span style="font-size: 14pt;">{hora}</span></b>')
+        main_line.addWidget(hour_label)
+        
+        # Cor: #00CED1 (Turquesa)
+        client_label = QLabel(f'<b><span style="color: #00CED1; font-size: 14pt;">{nome_cliente}</span></b>')
+        client_label.setWordWrap(True)
+        main_line.addWidget(client_label, 1) 
+        
+        main_layout.addLayout(main_line)
+        
+        # 2. SEGUNDA LINHA (TIPO E LOCAL/ENDEREÇO)
+        location_line = QHBoxLayout()
+        location_line.setSpacing(15) 
+        
+        # LÓGICA DE EXIBIÇÃO DO LOCAL/ENDEREÇO
+        local_display = local_visita
+        if local_visita == "No Cliente" and endereco:
+            local_display = f"No Cliente ({endereco})"
+
+        # Tipo
+        type_label = QLabel(f'<span style="{title_style}">Tipo:</span><span style="{content_style}"> {tipo_visita}</span>')
+        location_line.addWidget(type_label)
+        
+        # Local
+        local_label = QLabel(f'<span style="{title_style}">Local:</span><span style="{content_style}"> {local_display}</span>')
+        local_label.setWordWrap(True)
+        location_line.addWidget(local_label, 1) 
+        
+        main_layout.addLayout(location_line)
+
+        # 3. TERCEIRA LINHA (QUEM VAI? E OBSERVAÇÕES)
+        detail_line = QHBoxLayout()
+        detail_line.setSpacing(15)
+        
+        # CAMPO: QUEM VAI?
+        quem_vai_display = quem_vai if quem_vai else 'Não Definido'
+        quem_vai_label = QLabel(f'<span style="{title_style}">Quem vai?:</span><span style="{content_style}"> {quem_vai_display}</span>')
+        detail_line.addWidget(quem_vai_label)
+        
+        # Observações (Ocupa o restante da linha)
+        obs_display = observacoes
+        if not observacoes:
+             obs_display = 'Nenhuma'
+
+        obs_label = QLabel(f'<span style="{title_style}">Obs:</span><span style="{content_style}"> {obs_display}</span>')
+        obs_label.setWordWrap(True)
+        detail_line.addWidget(obs_label, 1) 
+        
+        main_layout.addLayout(detail_line)
+        
+        # AUMENTO DE ALTURA (Mínimo de 80px para comportar 3 linhas)
+        self.setMinimumHeight(80) 
+        self.setStyleSheet("background-color: transparent;")
+
 # --- DIÁLOGO DE ADIÇÃO/EDIÇÃO DE EVENTO ---
 
 class AddEventDialog(QDialog):
-    def __init__(self, selected_date, parent=None):
+    def __init__(self, selected_date, appointment_details=None, parent=None):
         super().__init__(parent)
         self.setWindowTitle(f"Agendar Compromisso para {selected_date.toString('dd/MM/yyyy')}")
-        self.resize(500, 380)
+        self.resize(500, 420) 
         _center_window(self)
         
         self.data_selecionada = selected_date.toString("yyyy-MM-dd")
         self.novo_compromisso = None
+        self.compromisso_id = None 
 
         layout = QFormLayout()
 
@@ -188,11 +263,22 @@ class AddEventDialog(QDialog):
         # 4. Local da Visita (ComboBox)
         self.local_visita_input = QComboBox(self)
         self.local_visita_input.addItems(["Escritório", "No Cliente"])
+        self.local_visita_input.currentTextChanged.connect(self._toggle_endereco_field)
         layout.addRow("Local:", self.local_visita_input)
         
-        # 5. Observações (Multi-linha)
+        # 5. Endereço (Visível apenas se "No Cliente")
+        self.endereco_input = QLineEdit(self)
+        self.endereco_input.setPlaceholderText("Ex: Praça Exemplo, 44, Centro, Barbacena MG")
+        layout.addRow("Endereço:", self.endereco_input)
+        
+        # 6. NOVO CAMPO: QUEM VAI?
+        self.quem_vai_input = QLineEdit(self)
+        self.quem_vai_input.setPlaceholderText("Ex: César, João, Equipe X...")
+        layout.addRow("Quem vai? (Responsável):", self.quem_vai_input)
+
+        # 7. Observações (Multi-linha)
         self.obs_input = QTextEdit(self)
-        self.obs_input.setFixedHeight(80)
+        self.obs_input.setFixedHeight(60)
         layout.addRow("Observações (Motivo):", self.obs_input)
 
         self.save_button = QPushButton("Salvar Agendamento")
@@ -210,6 +296,44 @@ class AddEventDialog(QDialog):
 
         self.save_button.setStyleSheet("background-color: #007acc; color: white;")
         _apply_shadow(self.save_button, blur_radius=10, color_alpha=80)
+        
+        # Inicializa a visibilidade do campo Endereço
+        self._toggle_endereco_field(self.local_visita_input.currentText())
+
+        # Preenche os dados se for Edição (appointment_details é a tupla do DB)
+        if appointment_details:
+            self._load_details_for_editing(appointment_details)
+
+    def _toggle_endereco_field(self, local_text):
+        """ Controla a visibilidade do campo Endereço. """
+        is_client_visit = (local_text == "No Cliente")
+        self.endereco_input.setVisible(is_client_visit)
+        # O label do Endereço também precisa ser ajustado
+        if self.endereco_input.parentWidget():
+            label = self.layout().labelForField(self.endereco_input)
+            if label:
+                label.setVisible(is_client_visit)
+    
+    def _load_details_for_editing(self, details_tuple):
+        # Desempacota a tupla de 8 elementos retornada pelo DB
+        data_str, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes = details_tuple
+        
+        self.setWindowTitle(f"Editar Visita de {nome_cliente} ({QDate.fromString(data_str, 'yyyy-MM-dd').toString('dd/MM/yyyy')})")
+        self.data_selecionada = data_str 
+        
+        self.time_input.setTime(QTime.fromString(hora, "HH:mm"))
+        self.cliente_input.setText(nome_cliente)
+        self.obs_input.setText(observacoes)
+        self.endereco_input.setText(endereco)
+        
+        self.tipo_visita_input.setCurrentText(tipo_visita)
+        self.local_visita_input.setCurrentText(local_visita)
+        
+        # Pré-popula o novo campo Quem Vai?
+        self.quem_vai_input.setText(quem_vai)
+        
+        self._toggle_endereco_field(local_visita)
+
 
     def save_compromisso(self):
         hora = self.time_input.time().toString("HH:mm")
@@ -217,6 +341,12 @@ class AddEventDialog(QDialog):
         tipo_visita = self.tipo_visita_input.currentText()
         local_visita = self.local_visita_input.currentText()
         observacoes = self.obs_input.toPlainText().strip()
+        
+        # Campo Endereço (só pega se for "No Cliente")
+        endereco = self.endereco_input.text().strip() if local_visita == "No Cliente" else ""
+        
+        # Campo Quem Vai?
+        quem_vai = self.quem_vai_input.text().strip()
         
         if not cliente:
             QMessageBox.warning(self, "Erro de Entrada", "O nome do cliente não pode ser vazio.")
@@ -228,10 +358,33 @@ class AddEventDialog(QDialog):
             "nome_cliente": cliente,
             "tipo_visita": tipo_visita,
             "local_visita": local_visita,
+            "endereco": endereco,           
+            "quem_vai": quem_vai,           
             "observacoes": observacoes
         }
         
         self.accept()
+        
+    # Método mantido para compatibilidade, embora o _load_details_for_editing seja preferido na edição
+    # O AddEventDialog.__init__ agora o utiliza se appointment_details for passado.
+    def set_compromisso_details(self, data_str, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes):
+        """ Método auxiliar para carregar dados para edição. """
+        self.setWindowTitle(f"Editar Visita de {nome_cliente} ({QDate.fromString(data_str, 'yyyy-MM-dd').toString('dd/MM/yyyy')})")
+        self.data_selecionada = data_str 
+        
+        self.time_input.setTime(QTime.fromString(hora, "HH:mm"))
+        self.cliente_input.setText(nome_cliente)
+        self.obs_input.setText(observacoes)
+        self.endereco_input.setText(endereco)
+        
+        self.tipo_visita_input.setCurrentText(tipo_visita)
+        self.local_visita_input.setCurrentText(local_visita)
+        
+        self.quem_vai_input.setText(quem_vai)
+        
+        # Garante que o campo de endereço esteja visível/oculto corretamente
+        self._toggle_endereco_field(local_visita)
+
 
 # --- AGENDA APP (PRINCIPAL) ---
 
@@ -306,58 +459,59 @@ class AgendaApp(QWidget):
         
         self.day_title.setText(f"Compromissos para:\n{display_date_str}")
         
-        daily_events = self.db_manager.get_compromissos_by_date(selected_date_str)
+        daily_events = self.db_manager.get_compromissos_by_date(selected_date_str) 
         
         self.appointment_list.clear()
         
         if daily_events:
-            for event_id, hora, nome_cliente, tipo_visita, local_visita, observacoes in daily_events:
+            # 🛑 ATUALIZADO: Inclui endereco e quem_vai (8 campos)
+            for event_id, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes in daily_events: 
                 
-                obs_limit = 40
-                obs_display = observacoes
-                if observacoes and len(observacoes) > obs_limit:
-                    obs_display = observacoes[:obs_limit] + '...'
-                elif not observacoes:
-                    obs_display = 'Nenhuma'
-
-                # FORMATAÇÃO HORIZONTAL (COMPACTA)
-                item_text = (
-                    f" {hora} | "
-                    f"Cliente: {nome_cliente} | "
-                    f"Tipo: {tipo_visita} | "
-                    f"Local: {local_visita} | "
-                    f"Obs: {obs_display}"
+                # 🛑 WIDGET PERSONALIZADO
+                item_widget = AppointmentItemWidget(
+                    hora=hora, 
+                    nome_cliente=nome_cliente, 
+                    tipo_visita=tipo_visita, 
+                    local_visita=local_visita, 
+                    observacoes=observacoes, 
+                    endereco=endereco,
+                    quem_vai=quem_vai 
                 )
                 
-                item = QListWidgetItem(item_text)
+                # Cria o QListWidgetItem
+                item = QListWidgetItem(self.appointment_list)
                 
-                # APLICAÇÃO DA COR DE FUNDO (Usando a função global)
+                # Define a cor do fundo
                 color_hex = get_color_by_type(tipo_visita)
                 item.setBackground(QColor(color_hex))
                 
-                # DEFINE A ALTURA PARA UMA ÚNICA LINHA
-                item.setSizeHint(QSize(self.appointment_list.width(), 30))
-                
+                # Define o tamanho e atribui o widget
+                item.setSizeHint(item_widget.sizeHint())
+                self.appointment_list.setItemWidget(item, item_widget)
+
                 item.setData(Qt.UserRole, event_id) 
-                
                 self.appointment_list.addItem(item)
         else:
             item = QListWidgetItem("Nenhum compromisso agendado.")
+            item.setSizeHint(QSize(self.appointment_list.width(), 40)) 
             self.appointment_list.addItem(item)
             
     def open_add_dialog(self):
         selected_date = self.calendar.selectedDate()
-        dialog = AddEventDialog(selected_date, self)
+        dialog = AddEventDialog(selected_date, parent=self)
         
         if dialog.exec_() == QDialog.Accepted:
             data_to_save = dialog.novo_compromisso
             
+            # 🛑 ATUALIZADO: add_compromisso com 8 argumentos
             self.db_manager.add_compromisso(
                 data_to_save['data'],
                 data_to_save['hora'],
                 data_to_save['nome_cliente'],
                 data_to_save['tipo_visita'],
                 data_to_save['local_visita'],
+                data_to_save['endereco'],
+                data_to_save['quem_vai'],
                 data_to_save['observacoes']
             )
             
@@ -368,10 +522,8 @@ class AgendaApp(QWidget):
     def open_edit_dialog(self, item=None):
         
         if item is not None:
-            # Se chamado pelo duplo clique, o item é passado diretamente
             selected_item = item
         else:
-            # Se chamado de outra forma (ex: botão, mas foi removido), busca o item selecionado
             selected_items = self.appointment_list.selectedItems()
             if not selected_items:
                 QMessageBox.warning(self, "Seleção Inválida", "Por favor, selecione um compromisso para editar.")
@@ -380,47 +532,45 @@ class AgendaApp(QWidget):
 
         compromisso_id = selected_item.data(Qt.UserRole)
         
-        # Certifica que não estamos tentando editar a linha "Nenhum compromisso agendado."
         if compromisso_id is None:
             QMessageBox.warning(self, "Erro", "Não é um compromisso válido para edição.")
             return
             
-        # 1. Busca os dados atuais do banco
+        # 1. Busca os dados atuais do banco (retorna 8 campos)
         details_tuple = self.db_manager.get_compromisso_by_id(compromisso_id)
         
         if not details_tuple:
             QMessageBox.critical(self, "Erro", "Não foi possível carregar os dados do compromisso.")
             return
 
-        data_str, hora, nome_cliente, tipo_visita, local_visita, observacoes = details_tuple
+        # data_str é o primeiro elemento da tupla (índice 0)
+        data_str = details_tuple[0] 
+        selected_date_qdate = QDate.fromString(data_str, "yyyy-MM-dd")
         
         # 2. Configura o AddEventDialog para edição
-        selected_date_qdate = QDate.fromString(data_str, "yyyy-MM-dd")
-        dialog = AddEventDialog(selected_date_qdate, self)
-        
-        # 3. Pré-popular o diálogo com os dados existentes
-        dialog.setWindowTitle(f"Editar Visita de {nome_cliente} ({selected_date_qdate.toString('dd/MM/yyyy')})")
-        dialog.data_selecionada = data_str 
-        
-        dialog.time_input.setTime(QTime.fromString(hora, "HH:mm"))
-        dialog.cliente_input.setText(nome_cliente)
-        dialog.obs_input.setText(observacoes)
-        
-        dialog.tipo_visita_input.setCurrentText(tipo_visita)
-        dialog.local_visita_input.setCurrentText(local_visita)
+        # Passamos a tupla completa como 'appointment_details' para o construtor
+        dialog = AddEventDialog(
+            selected_date_qdate, 
+            appointment_details=details_tuple, 
+            parent=self
+        )
+        # O ID é salvo no dialog para ser usado na atualização
+        dialog.compromisso_id = compromisso_id 
 
-        # 4. Executa o diálogo e salva se aceito
+        # 3. Executa o diálogo e salva se aceito
         if dialog.exec_() == QDialog.Accepted:
             data_to_save = dialog.novo_compromisso
             
-            # ATUALIZAÇÃO NO BANCO
+            # 🛑 ATUALIZAÇÃO NO BANCO (com 8 argumentos)
             if self.db_manager.update_compromisso(
-                compromisso_id,
+                dialog.compromisso_id,
                 data_to_save['data'],
                 data_to_save['hora'],
                 data_to_save['nome_cliente'],
                 data_to_save['tipo_visita'],
                 data_to_save['local_visita'],
+                data_to_save['endereco'],
+                data_to_save['quem_vai'],
                 data_to_save['observacoes']
             ):
                 QMessageBox.information(self, "Sucesso", "Compromisso atualizado com sucesso!")
@@ -428,7 +578,7 @@ class AgendaApp(QWidget):
             else:
                 QMessageBox.critical(self, "Erro", "Falha ao atualizar o compromisso no banco de dados.")
 
-    def delete_selected_appointment(self):
+    def delete_selected_appointment(self,):
         selected_items = self.appointment_list.selectedItems()
         
         if not selected_items:
