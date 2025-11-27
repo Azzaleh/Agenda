@@ -133,9 +133,9 @@ QSS_STYLES = """
 def get_color_by_type(tipo_visita):
     """ Mapeia o tipo de visita para uma cor de fundo. """
     colors = {
-        "Treinamento": "#e6f7ff",   # Azul Claro (Sky Blue)
-        "Visita Técnica": "#fff7e6", # Amarelo Claro (Light Orange/Gold)
-        "Outro": "#f0fff0",          # Verde Claro Quase Branco (Honeydew)
+        "Treinamento": "#c6ffc6",   
+        "Visita Técnica": "#ffecc2", 
+        "Outro": "#96fffa",          
     }
     # Retorna a cor mapeada ou um branco/cinza claro padrão
     return colors.get(tipo_visita, "#ffffff")
@@ -161,7 +161,7 @@ def _apply_shadow(widget, blur_radius=15, color_alpha=80):
 class AddEventDialog(QDialog):
     def __init__(self, selected_date, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"Agendar Visita para {selected_date.toString('dd/MM/yyyy')}")
+        self.setWindowTitle(f"Agendar Compromisso para {selected_date.toString('dd/MM/yyyy')}")
         self.resize(500, 380)
         _center_window(self)
         
@@ -183,7 +183,7 @@ class AddEventDialog(QDialog):
         # 3. Tipo de Visita (ComboBox)
         self.tipo_visita_input = QComboBox(self)
         self.tipo_visita_input.addItems(["Treinamento", "Visita Técnica", "Outro"])
-        layout.addRow("Tipo de Visita:", self.tipo_visita_input)
+        layout.addRow("Tipo de Compromisso:", self.tipo_visita_input)
 
         # 4. Local da Visita (ComboBox)
         self.local_visita_input = QComboBox(self)
@@ -242,7 +242,7 @@ class AgendaApp(QWidget):
         # Inicialização do DB Manager
         self.db_manager = DataManager()
         
-        self.setWindowTitle("Agenda Moderna (PyQt5) - Gerenciamento de Visitas")
+        self.setWindowTitle("Agenda Data Servis")
         self.init_ui()
         
     def init_ui(self):
@@ -266,7 +266,7 @@ class AgendaApp(QWidget):
         # CONEXÃO: DUPLO CLIQUE PARA EDIÇÃO
         self.appointment_list.itemDoubleClicked.connect(self.open_edit_dialog)
 
-        self.addButton = QPushButton(" + Adicionar Nova Visita ")
+        self.addButton = QPushButton(" + Adicionar Novo Compromisso ")
         self.addButton.clicked.connect(self.open_add_dialog)
         self.addButton.setObjectName("AddButton")
         self.addButton.setStyleSheet("background-color: #007acc; color: white;") 
@@ -322,11 +322,11 @@ class AgendaApp(QWidget):
 
                 # FORMATAÇÃO HORIZONTAL (COMPACTA)
                 item_text = (
-                    f"**[ {hora} ]** | "
-                    f"**Cliente:** {nome_cliente} | "
-                    f"**Tipo:** {tipo_visita} | "
-                    f"**Local:** {local_visita} | "
-                    f"**Obs:** {obs_display}"
+                    f" {hora} | "
+                    f"Cliente: {nome_cliente} | "
+                    f"Tipo: {tipo_visita} | "
+                    f"Local: {local_visita} | "
+                    f"Obs: {obs_display}"
                 )
                 
                 item = QListWidgetItem(item_text)
