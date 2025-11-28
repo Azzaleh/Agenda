@@ -7,9 +7,12 @@ from PyQt5.QtWidgets import (
     QCalendarWidget, QListWidget, QLabel, QPushButton,
     QDialog, QFormLayout, QLineEdit, QTimeEdit, QMessageBox,
     QGraphicsDropShadowEffect, QListWidgetItem, QDesktopWidget,
-    QComboBox, QTextEdit
+    QComboBox, QTextEdit, QRadioButton # QRadioButton ADICIONADO
 )
-from PyQt5.QtCore import QDate, Qt, QTime, QSize, QThread, pyqtSignal, QCoreApplication, QUrl, QTimer # ⬅️ QTimer ADICIONADO
+from PyQt5.QtCore import (
+    QDate, Qt, QTime, QSize, QThread, pyqtSignal, 
+    QCoreApplication, QUrl, QTimer # QTimer ADICIONADO
+) 
 from PyQt5.QtGui import QColor,QTextCharFormat 
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
@@ -20,7 +23,7 @@ GITHUB_REPO = "Azzaleh/Agenda"
 CURRENT_VERSION = "1.1"
 DOWNLOAD_FILENAME = "AgendaDataServis.exe"
 
-# --- QSS STYLES (Corrigido para Azul Claro Fixo no Dia Atual) ---
+# --- QSS STYLES ---
 QSS_STYLES = """
     /* Fundo Geral e Fonte */
     QWidget {
@@ -148,6 +151,11 @@ QSS_STYLES = """
         border-radius: 5px;
         font-size: 11pt;
     }
+    
+    QRadioButton {
+        padding: 5px;
+        font-size: 11pt;
+    }
 """
 
 # --- FUNÇÕES AUXILIARES GLOBAIS ---
@@ -182,24 +190,24 @@ def _apply_shadow(widget, blur_radius=15, color_alpha=80):
 class Updater(QThread):
     update_available = pyqtSignal(str, str) # Emite (versão, download_url)
     update_error = pyqtSignal(str)
-    verification_finished = pyqtSignal(bool) # 🛑 NOVO SINAL ADICIONADO AQUI
+    verification_finished = pyqtSignal(bool)
     
     def run(self):
         try:
-            # 1. Requisição à API do GitHub para pegar a última release
+            # Requisição à API do GitHub para pegar a última release
             api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
             response = requests.get(api_url, timeout=5)
             
             if response.status_code != 200:
                 self.update_error.emit("Erro ao acessar API do GitHub. Código: " + str(response.status_code))
-                self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO DE API
+                self.verification_finished.emit(False)
                 return
 
             latest_release = response.json()
             # Remove "v" do início e pega a versão da tag
             latest_version_raw = latest_release.get("tag_name", "v0.0").lstrip('v')
             
-            # 2. Comparação de Versões (USANDO APENAS MAIOR.MENOR)
+            # Comparação de Versões
             if self._is_new_version(latest_version_raw, CURRENT_VERSION):
                 
                 download_url = None
@@ -211,28 +219,26 @@ class Updater(QThread):
                 
                 if download_url:
                     self.update_available.emit(latest_version_raw, download_url)
-                    # Não emitimos finished aqui, pois o processo de update continua
                 else:
                     self.update_error.emit(f"Arquivo '{DOWNLOAD_FILENAME}' não encontrado na release.")
-                    self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO DE ARQUIVO
+                    self.verification_finished.emit(False)
             else:
-                self.verification_finished.emit(True) # 🛑 EMITIR APÓS SUCESSO (Versão atualizada)
+                self.verification_finished.emit(True)
             
         except requests.exceptions.ConnectionError:
             self.update_error.emit("Erro de conexão de rede.")
-            self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO DE CONEXÃO
+            self.verification_finished.emit(False)
         except Exception as e:
             self.update_error.emit(f"Erro inesperado na verificação: {e}")
-            self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO GERAL
+            self.verification_finished.emit(False)
 
     def _is_new_version(self, new_raw, current_raw):
-        # 🛑 Lógica para comparar apenas MAIOR e MENOR.
+        # Lógica para comparar apenas MAIOR e MENOR.
         
-        # Garante que temos apenas dois números (X.Y)
         new_parts = list(map(int, new_raw.split('.')))[:2]
         current_parts = list(map(int, current_raw.split('.')))[:2]
         
-        # Preenche com zeros se for necessário (ex: 1 vs 1.0)
+        # Preenche com zeros se for necessário
         max_len = max(len(new_parts), len(current_parts))
         new_parts.extend([0] * (max_len - len(new_parts)))
         current_parts.extend([0] * (max_len - len(current_parts)))
@@ -243,14 +249,13 @@ class Updater(QThread):
 
 class AppointmentItemWidget(QWidget):
     def __init__(self, hora, nome_cliente, tipo_visita, local_visita, observacoes, endereco, quem_vai, parent=None):
+        """ Inicializa o widget com os detalhes do agendamento em três linhas. """
         super().__init__(parent)
         
-        # O layout principal do item será vertical
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(5, 5, 5, 5) 
         main_layout.setSpacing(4) 
 
-        # Estilos comuns
         title_style = 'font-weight: bold; color: #333333; margin-right: 5px;'
         content_style = 'font-size: 10pt;'
 
@@ -261,7 +266,6 @@ class AppointmentItemWidget(QWidget):
         hour_label = QLabel(f'<b><span style="font-size: 14pt;">{hora}</span></b>')
         main_line.addWidget(hour_label)
         
-        # Cor: #00CED1 (Turquesa)
         client_label = QLabel(f'<b><span style="color: #00CED1; font-size: 14pt;">{nome_cliente}</span></b>')
         client_label.setWordWrap(True)
         main_line.addWidget(client_label, 1) 
@@ -281,8 +285,6 @@ class AppointmentItemWidget(QWidget):
         type_label = QLabel(f'<span style="{title_style}">Tipo:</span><span style="{content_style}"> {tipo_visita}</span>')
         location_line.addWidget(type_label)
         
-                                                                                                                                            
-
         # Local
         local_label = QLabel(f'<span style="{title_style}">Local:</span><span style="{content_style}"> {local_display}</span>')
         local_label.setWordWrap(True)
@@ -310,7 +312,6 @@ class AppointmentItemWidget(QWidget):
         
         main_layout.addLayout(detail_line)
         
-        # AUMENTO DE ALTURA (Mínimo de 80px para comportar 3 linhas)
         self.setMinimumHeight(80)
         self.setStyleSheet("background-color: transparent;")
 
@@ -318,6 +319,7 @@ class AppointmentItemWidget(QWidget):
 
 class AddEventDialog(QDialog):
     def __init__(self, selected_date, appointment_details=None, parent=None):
+        """ Diálogo para adicionar ou editar um compromisso. """
         super().__init__(parent)
         self.setWindowTitle(f"Agendar Compromisso para {selected_date.toString('dd/MM/yyyy')}")
         self.resize(500, 420) 
@@ -355,9 +357,8 @@ class AddEventDialog(QDialog):
         self.endereco_input.setPlaceholderText("Ex: Praça Exemplo, 44, Centro, Barbacena MG")
         layout.addRow("Endereço:", self.endereco_input)
         
-        # 6. NOVO CAMPO: QUEM VAI?
+        # 6. Campo: QUEM VAI?
         self.quem_vai_input = QLineEdit(self)
-        self.quem_vai_input.setPlaceholderText("Ex: César, João, Equipe X...")
         layout.addRow("Quem vai? (Responsável):", self.quem_vai_input)
 
         # 7. Observações (Multi-linha)
@@ -381,10 +382,9 @@ class AddEventDialog(QDialog):
         self.save_button.setStyleSheet("background-color: #007acc; color: white;")
         _apply_shadow(self.save_button, blur_radius=10, color_alpha=80)
         
-        # Inicializa a visibilidade do campo Endereço
         self._toggle_endereco_field(self.local_visita_input.currentText())
 
-        # Preenche os dados se for Edição (appointment_details é a tupla do DB)
+        # Preenche os dados se for Edição
         if appointment_details:
             self._load_details_for_editing(appointment_details)
 
@@ -392,14 +392,14 @@ class AddEventDialog(QDialog):
         """ Controla a visibilidade do campo Endereço. """
         is_client_visit = (local_text == "No Cliente")
         self.endereco_input.setVisible(is_client_visit)
-        # O label do Endereço também precisa ser ajustado
         if self.endereco_input.parentWidget():
             label = self.layout().labelForField(self.endereco_input)
             if label:
                 label.setVisible(is_client_visit)
     
     def _load_details_for_editing(self, details_tuple):
-        # Desempacota a tupla de 8 elementos retornada pelo DB
+        """ Carrega os dados para o modo de edição. """
+        # data_str, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes
         data_str, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes = details_tuple
         
         self.setWindowTitle(f"Editar Visita de {nome_cliente} ({QDate.fromString(data_str, 'yyyy-MM-dd').toString('dd/MM/yyyy')})")
@@ -413,23 +413,20 @@ class AddEventDialog(QDialog):
         self.tipo_visita_input.setCurrentText(tipo_visita)
         self.local_visita_input.setCurrentText(local_visita)
         
-        # Pré-popula o novo campo Quem Vai?
         self.quem_vai_input.setText(quem_vai)
         
         self._toggle_endereco_field(local_visita)
 
 
     def save_compromisso(self):
+        """ Salva os dados do formulário no dicionário novo_compromisso. """
         hora = self.time_input.time().toString("HH:mm")
         cliente = self.cliente_input.text().strip()
         tipo_visita = self.tipo_visita_input.currentText()
         local_visita = self.local_visita_input.currentText()
         observacoes = self.obs_input.toPlainText().strip()
         
-        # Campo Endereço (só pega se for "No Cliente")
         endereco = self.endereco_input.text().strip() if local_visita == "No Cliente" else ""
-        
-        # Campo Quem Vai?
         quem_vai = self.quem_vai_input.text().strip()
         
         if not cliente:
@@ -449,26 +446,121 @@ class AddEventDialog(QDialog):
         
         self.accept()
         
-    # Método mantido para compatibilidade, embora o _load_details_for_editing seja preferido na edição
-    # O AddEventDialog.__init__ agora o utiliza se appointment_details for passado.
     def set_compromisso_details(self, data_str, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes):
         """ Método auxiliar para carregar dados para edição. """
-        self.setWindowTitle(f"Editar Visita de {nome_cliente} ({QDate.fromString(data_str, 'yyyy-MM-dd').toString('dd/MM/yyyy')})")
-        self.data_selecionada = data_str 
-        
-        self.time_input.setTime(QTime.fromString(hora, "HH:mm"))
-        self.cliente_input.setText(nome_cliente)
-        self.obs_input.setText(observacoes)
-        self.endereco_input.setText(endereco)
-        
-        self.tipo_visita_input.setCurrentText(tipo_visita)
-        self.local_visita_input.setCurrentText(local_visita)
-        
-        self.quem_vai_input.setText(quem_vai)
-        
-        # Garante que o campo de endereço esteja visível/oculto corretamente
-        self._toggle_endereco_field(local_visita)
+        self._load_details_for_editing((data_str, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes))
 
+
+# --- NOVO: DIÁLOGO DE CONSULTA DE AGENDAMENTOS ---
+
+class QueryDialog(QDialog):
+    # Sinal emitido quando o usuário seleciona um compromisso para navegar
+    appointment_selected = pyqtSignal(QDate)
+
+    def __init__(self, db_manager, parent=None):
+        """ Diálogo para consultar agendamentos passados ou futuros. """
+        super().__init__(parent)
+        self.setWindowTitle("Consultar Agendamentos")
+        self.resize(700, 600)
+        _center_window(self)
+        
+        self.db_manager = db_manager
+        self.appointments_data = []
+
+        main_layout = QVBoxLayout(self)
+
+        # 1. LAYOUT DE OPÇÕES (RÁDIOS E BOTÃO)
+        options_layout = QHBoxLayout()
+        
+        self.radio_future = QRadioButton("Agendamentos Futuros")
+        self.radio_future.setChecked(True)
+        self.radio_future.toggled.connect(self._fetch_appointments) 
+        
+        self.radio_past = QRadioButton("Agendamentos Passados")
+        self.radio_past.toggled.connect(self._fetch_appointments) 
+
+        self.select_button = QPushButton("Visualizar no Calendário")
+        self.select_button.clicked.connect(self._select_and_return_date)
+        self.select_button.setEnabled(False)
+        
+        options_layout.addWidget(self.radio_future)
+        options_layout.addWidget(self.radio_past)
+        options_layout.addStretch(1)
+        options_layout.addWidget(self.select_button)
+        
+        main_layout.addLayout(options_layout)
+
+        # 2. LISTA DE RESULTADOS
+        self.result_list = QListWidget()
+        self.result_list.itemClicked.connect(self._toggle_select_button)
+        self.result_list.itemDoubleClicked.connect(self._select_and_return_date)
+        main_layout.addWidget(self.result_list)
+        
+        self._fetch_appointments()
+        
+        self.select_button.setStyleSheet("background-color: #6a0dad; color: white; padding: 10px; border-radius: 8px;")
+        _apply_shadow(self.select_button, blur_radius=10, color_alpha=80)
+
+    def _toggle_select_button(self):
+        """ Ativa/Desativa o botão 'Visualizar' se um item válido estiver selecionado. """
+        selected_items = self.result_list.selectedItems()
+        self.select_button.setEnabled(bool(selected_items) and selected_items[0].data(Qt.UserRole) is not None)
+
+    def _fetch_appointments(self):
+        """ Busca os agendamentos no DB conforme o rádio selecionado. """
+        self.result_list.clear()
+        self.select_button.setEnabled(False) 
+        
+        if self.radio_future.isChecked():
+            self.appointments_data = self.db_manager.get_future_appointments()
+        else:
+            self.appointments_data = self.db_manager.get_past_appointments()
+
+        if not self.appointments_data:
+            item = QListWidgetItem("Nenhum compromisso encontrado para este período.")
+            item.setSizeHint(QSize(self.result_list.width(), 40)) 
+            self.result_list.addItem(item)
+            return
+
+        for data_tuple in self.appointments_data:
+            # data_tuple: (id, data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes)
+            
+            # Formato de data legível para o Widget (ex: 28/11)
+            display_date_str = QDate.fromString(data_tuple[1], "yyyy-MM-dd").toString("dd/MM")
+            
+            # Criamos o widget personalizado para exibição
+            item_widget = AppointmentItemWidget(
+                hora=f"[{display_date_str}] {data_tuple[2]}", # Adiciona a data à hora
+                nome_cliente=data_tuple[3], 
+                tipo_visita=data_tuple[4], 
+                local_visita=data_tuple[5], 
+                observacoes=data_tuple[8], 
+                endereco=data_tuple[6],
+                quem_vai=data_tuple[7] 
+            )
+
+            item = QListWidgetItem(self.result_list)
+            
+            # Cor de fundo: a cor da visita, mas mais suave para a consulta
+            color_hex = get_color_by_type(data_tuple[4])
+            item.setBackground(QColor(color_hex).lighter(110))
+            
+            # Armazena a data no formato QDate no UserRole para fácil acesso
+            qdate = QDate.fromString(data_tuple[1], "yyyy-MM-dd")
+            item.setData(Qt.UserRole, qdate) 
+            
+            item.setSizeHint(item_widget.sizeHint())
+            self.result_list.setItemWidget(item, item_widget)
+            self.result_list.addItem(item)
+
+    def _select_and_return_date(self):
+        """ Emite o sinal com a data do compromisso selecionado e fecha o diálogo. """
+        selected_items = self.result_list.selectedItems()
+        if selected_items:
+            selected_qdate = selected_items[0].data(Qt.UserRole) 
+            if selected_qdate:
+                self.appointment_selected.emit(selected_qdate)
+                self.accept()
 
 # --- AGENDA APP (PRINCIPAL) ---
 
@@ -479,15 +571,14 @@ class AgendaApp(QWidget):
         # Inicialização do DB Manager
         self.db_manager = DataManager()
         
-        # 🛑 Título base é definido no set_window_title para incluir status
         self.set_window_title() 
         self.init_ui()
         
-        # 🟦 NOVO: Armazena o último dia verificado para o timer
-        self.last_checked_date = QDate.currentDate() # ⬅️ ADICIONADO
+        # Armazena o último dia verificado para o timer
+        self.last_checked_date = QDate.currentDate()
 
     def set_window_title(self, status=""):
-        """Atualiza o título da janela com o status atual."""
+        """ Atualiza o título da janela com o status atual. """
         base_title = "Agenda Data Servis"
         if status:
             self.setWindowTitle(f"{base_title} [{status}]")
@@ -497,20 +588,18 @@ class AgendaApp(QWidget):
     def init_ui(self):
         app.setStyleSheet(QSS_STYLES)
         
-        # 🛑 Defina o status inicial aqui, antes do layout
         self.set_window_title("Verificando Atualizações...") 
         
         main_layout = QHBoxLayout()
 
         self.calendar = QCalendarWidget()
-        self.highlight_today() # ⬅️ CHAME AQUI APÓS CRIAR O CALENDÁRIO
+        self.highlight_today()
 
         today_format = QTextCharFormat()
-        today_format.setBackground(QColor("#6DFFC2"))  # Azul claro
-        today_format.setForeground(QColor("#333333"))  # Texto escuro
-        today_format.setFontWeight(75)  # Negrito opcional
+        today_format.setBackground(QColor("#6DFFC2"))
+        today_format.setForeground(QColor("#333333"))
+        today_format.setFontWeight(75)
 
-        # Aplica ao dia de hoje (Este trecho será substituído pelo highlight_today)
         self.calendar.setDateTextFormat(QDate.currentDate(), today_format)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader) 
         self.calendar.setGridVisible(False) 
@@ -531,17 +620,22 @@ class AgendaApp(QWidget):
         self.addButton.clicked.connect(self.open_add_dialog)
         self.addButton.setObjectName("AddButton")
         self.addButton.setStyleSheet("background-color: #007acc; color: white;") 
-        
-        # O BOTÃO DE EDIÇÃO FOI REMOVIDO DA UI
 
         self.deleteButton = QPushButton(" - Excluir Compromisso Selecionado ")
         self.deleteButton.setObjectName("DeleteButton") 
         self.deleteButton.clicked.connect(self.delete_selected_appointment)
         self.deleteButton.setStyleSheet("background-color: #cc0000; color: white;") 
         
+        # NOVO BOTÃO DE CONSULTA
+        self.queryButton = QPushButton(" 🔎 Consultar Agendamentos ")
+        self.queryButton.setObjectName("QueryButton") 
+        self.queryButton.clicked.connect(self.open_query_dialog)
+        self.queryButton.setStyleSheet("background-color: #6a0dad; color: white;") # Roxo
+        
         right_panel.addWidget(self.day_title)
         right_panel.addWidget(self.appointment_list)
         right_panel.addWidget(self.addButton)
+        right_panel.addWidget(self.queryButton) 
         right_panel.addWidget(self.deleteButton) 
 
         right_container = QWidget()
@@ -556,23 +650,24 @@ class AgendaApp(QWidget):
         
         _apply_shadow(self.addButton)
         _apply_shadow(self.deleteButton) 
+        _apply_shadow(self.queryButton) 
 
         self.update_daily_appointments()
         
-        # 🕒 NOVO: Timer para atualizar automaticamente o dia atual (a cada 60 segundos)
-        self.date_check_timer = QTimer(self) # ⬅️ ADICIONADO
-        self.date_check_timer.timeout.connect(self.check_and_update_day) # ⬅️ ADICIONADO
-        self.date_check_timer.start(60000) # 60.000 ms = 60 segundos # ⬅️ ADICIONADO
+        # Timer para atualizar automaticamente o dia atual (a cada 60 segundos)
+        self.date_check_timer = QTimer(self)
+        self.date_check_timer.timeout.connect(self.check_and_update_day)
+        self.date_check_timer.start(60000)
         
         # Inicia o verificador de atualização
         self.updater = Updater()
         self.updater.update_available.connect(self.prompt_update)
         self.updater.update_error.connect(self.handle_updater_error)
-        self.updater.verification_finished.connect(self.handle_verification_finished) # 🛑 CONEXÃO ADICIONADA
+        self.updater.verification_finished.connect(self.handle_verification_finished)
         self.updater.start()
         
-    # MÉTODO DE ATUALIZAÇÃO (CORRIGIDO: Horizontal + Cor)
     def update_daily_appointments(self):
+        """ Atualiza a lista de compromissos para a data selecionada. """
         selected_date_qdate = self.calendar.selectedDate()
         selected_date_str = selected_date_qdate.toString("yyyy-MM-dd")
         display_date_str = selected_date_qdate.toString("dd 'de' MMMM 'de' yyyy")
@@ -584,10 +679,10 @@ class AgendaApp(QWidget):
         self.appointment_list.clear()
         
         if daily_events:
-            # 🛑 ATUALIZADO: Inclui endereco e quem_vai (8 campos)
+            # event_id, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes
             for event_id, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes in daily_events: 
                 
-                # 🛑 WIDGET PERSONALIZADO
+                # WIDGET PERSONALIZADO
                 item_widget = AppointmentItemWidget(
                     hora=hora, 
                     nome_cliente=nome_cliente, 
@@ -598,13 +693,11 @@ class AgendaApp(QWidget):
                     quem_vai=quem_vai 
                 )
                 
-                # Cria o QListWidgetItem
                 item = QListWidgetItem(self.appointment_list)
                 
-                # Define a cor do fundo
                 color_hex = get_color_by_type(tipo_visita)
                 item.setBackground(QColor(color_hex))
-                # Define o tamanho e atribui o widget
+
                 item.setSizeHint(item_widget.sizeHint())
                 self.appointment_list.setItemWidget(item, item_widget)
 
@@ -616,13 +709,13 @@ class AgendaApp(QWidget):
             self.appointment_list.addItem(item)
             
     def open_add_dialog(self):
+        """ Abre o diálogo para adicionar um novo compromisso. """
         selected_date = self.calendar.selectedDate()
         dialog = AddEventDialog(selected_date, parent=self)
         
         if dialog.exec_() == QDialog.Accepted:
             data_to_save = dialog.novo_compromisso
             
-            # 🛑 ATUALIZADO: add_compromisso com 8 argumentos
             self.db_manager.add_compromisso(
                 data_to_save['data'],
                 data_to_save['hora'],
@@ -637,9 +730,8 @@ class AgendaApp(QWidget):
             self.update_daily_appointments()
             QMessageBox.information(self, "Sucesso", "Visita agendada com sucesso!")
 
-    # MÉTODO DE EDIÇÃO (CHAMADO PELO DUPLO CLIQUE)
     def open_edit_dialog(self, item=None):
-        
+        """ Abre o diálogo para editar o compromisso selecionado. """
         if item is not None:
             selected_item = item
         else:
@@ -655,32 +747,29 @@ class AgendaApp(QWidget):
             QMessageBox.warning(self, "Erro", "Não é um compromisso válido para edição.")
             return
             
-        # 1. Busca os dados atuais do banco (retorna 8 campos)
+        # Busca os dados atuais do banco (retorna 8 campos)
         details_tuple = self.db_manager.get_compromisso_by_id(compromisso_id)
         
         if not details_tuple:
             QMessageBox.critical(self, "Erro", "Não foi possível carregar os dados do compromisso.")
             return
 
-        # data_str é o primeiro elemento da tupla (índice 0)
         data_str = details_tuple[0] 
         selected_date_qdate = QDate.fromString(data_str, "yyyy-MM-dd")
         
-        # 2. Configura o AddEventDialog para edição
-        # Passamos a tupla completa como 'appointment_details' para o construtor
+        # Configura o AddEventDialog para edição
         dialog = AddEventDialog(
             selected_date_qdate, 
             appointment_details=details_tuple, 
             parent=self
         )
-        # O ID é salvo no dialog para ser usado na atualização
         dialog.compromisso_id = compromisso_id 
 
-        # 3. Executa o diálogo e salva se aceito
+        # Executa o diálogo e salva se aceito
         if dialog.exec_() == QDialog.Accepted:
             data_to_save = dialog.novo_compromisso
             
-            # 🛑 ATUALIZAÇÃO NO BANCO (com 8 argumentos)
+            # ATUALIZAÇÃO NO BANCO
             if self.db_manager.update_compromisso(
                 dialog.compromisso_id,
                 data_to_save['data'],
@@ -698,6 +787,7 @@ class AgendaApp(QWidget):
                 QMessageBox.critical(self, "Erro", "Falha ao atualizar o compromisso no banco de dados.")
 
     def delete_selected_appointment(self,):
+        """ Exclui o compromisso selecionado na lista. """
         selected_items = self.appointment_list.selectedItems()
         
         if not selected_items:
@@ -724,14 +814,27 @@ class AgendaApp(QWidget):
             else:
                 QMessageBox.critical(self, "Erro", "Falha ao excluir o compromisso no banco de dados.")
 
+    def open_query_dialog(self):
+        """ Abre o diálogo de consulta de agendamentos. """
+        dialog = QueryDialog(self.db_manager, parent=self)
+        
+        # Conecta o sinal do diálogo ao método de navegação
+        dialog.appointment_selected.connect(self.navigate_to_date) 
+        
+        dialog.exec_()
+        
+    def navigate_to_date(self, target_date: QDate):
+        """ Navega o calendário para a data selecionada no QueryDialog. """
+        self.calendar.setSelectedDate(target_date)
+        self.update_daily_appointments()
+
     # --- MÉTODOS DE ATUALIZAÇÃO DE STATUS ---
     
     def handle_verification_finished(self, success):
-        """Atualiza o título da janela após a verificação estar completa."""
+        """ Atualiza o título da janela após a verificação estar completa. """
         if success:
             self.set_window_title(f"Versão {CURRENT_VERSION} Atualizada")
         else:
-            # Mantém o título limpo (após erro/falha de conexão)
             self.set_window_title() 
             
     def handle_updater_error(self, message):
@@ -739,6 +842,7 @@ class AgendaApp(QWidget):
         QMessageBox.warning(self, "Erro de Atualização", f"Falha ao verificar atualizações. {message}")
 
     def prompt_update(self, version, download_url):
+        """ Pergunta ao usuário se deseja atualizar. """
         reply = QMessageBox.question(self, "Atualização Disponível", 
             f"Uma nova versão ({version}) está disponível. Deseja atualizar agora?",
             QMessageBox.Yes | QMessageBox.No
@@ -752,7 +856,6 @@ class AgendaApp(QWidget):
             request = QNetworkRequest(QUrl(download_url))
             self.reply = self.download_manager.get(request)
             
-            # Mostra uma mensagem de download em andamento (Opcional, mas recomendado)
             self.download_msg = QMessageBox(self)
             self.download_msg.setText("Baixando atualização... Por favor, aguarde.")
             self.download_msg.setWindowTitle("Baixando")
@@ -760,6 +863,7 @@ class AgendaApp(QWidget):
             self.download_msg.show()
 
     def handle_download_finished(self, reply: QNetworkReply):
+        """ Gerencia o download da atualização. """
         if hasattr(self, 'download_msg'):
             self.download_msg.close()
 
@@ -780,23 +884,14 @@ class AgendaApp(QWidget):
             QMessageBox.critical(self, "Erro de Arquivo", f"Não foi possível salvar o novo executável: {e}")
             return
 
-        # 🛑 CHAVE DA ATUALIZAÇÃO: Executar um script externo para substituir o arquivo
         self.execute_update_script(current_exe_path, temp_new_exe_path)
 
 
     def execute_update_script(self, old_path, new_path):
-        """
-        Cria e executa um script temporário (batch/shell) que:
-        1. Espera o aplicativo atual fechar.
-        2. Exclui a versão antiga.
-        3. Renomeia o novo executável para o nome original.
-        4. Cria o atalho na área de trabalho.
-        5. Inicia a nova versão.
-        6. Se for Windows, usa VBScript para criar o atalho e apaga a si mesmo.
-        """
+        """ Cria e executa um script temporário para substituir o executável e reiniciar. """
         
         # Cria o script de atualização (Exemplo Windows Batch)
-        script_content = f"""
+        script_content = r"""
 @echo off
 ECHO Aguardando o aplicativo principal fechar...
 timeout /t 3 /nobreak >nul
@@ -833,43 +928,38 @@ goto :EOF
         
         try:
             with open(script_path, "w") as f:
-                f.write(script_content)
-                
-            # Executa o script e força o fechamento do app atual
+                f.write(script_content.format(
+                    old_path=old_path, 
+                    new_path=new_path, 
+                    DOWNLOAD_FILENAME=DOWNLOAD_FILENAME,
+                    os=os # Passa o módulo os para usar o path.basename/dirname
+                ))
             subprocess.Popen([script_path], creationflags=subprocess.CREATE_NO_WINDOW)
-            QCoreApplication.quit() # Fecha a aplicação PyQt atual
+            QCoreApplication.quit()
             
         except Exception as e:
             QMessageBox.critical(self, "Erro de Execução", f"Falha ao executar script de atualização: {e}")
 
     def highlight_today(self):
+        """ Aplica o formato de destaque ao dia atual no calendário. """
         today = QDate.currentDate()
         today_format = QTextCharFormat()
-        today_format.setBackground(QColor("#90CAF9"))  # Azul claro fixo
-        today_format.setForeground(QColor("#333333"))  # Texto escuro
-        today_format.setFontWeight(75)  # Negrito
+        today_format.setBackground(QColor("#90CAF9"))
+        today_format.setForeground(QColor("#DD8888"))
+        today_format.setFontWeight(75)
 
-        # Aplica o formato ao dia atual
         self.calendar.setDateTextFormat(today, today_format)
         
-    def check_and_update_day(self): # ⬅️ NOVO MÉTODO
-        """
-        Verifica se a data do sistema mudou e atualiza o destaque do calendário.
-        Chamado pelo QTimer a cada 60 segundos.
-        """
+    def check_and_update_day(self):
+        """ Verifica se a data do sistema mudou e atualiza o destaque do calendário. """
         today = QDate.currentDate()
 
-        # Se o dia mudou (virou meia-noite)
         if today != self.last_checked_date:
-            # 1. Atualiza a cor do dia atual
             self.highlight_today()  
-            # 2. Seleciona automaticamente o novo dia
             self.calendar.setSelectedDate(today)  
-            # 3. Atualiza a lista de compromissos do novo dia
             self.update_daily_appointments()  
             
-        # Atualiza o último dia verificado
-        self.last_checked_date = today # ⬅️ ATUALIZA A VARIÁVEL
+        self.last_checked_date = today
         
     def closeEvent(self, event):
         self.db_manager.close()

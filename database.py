@@ -1,38 +1,32 @@
 import sqlite3
 import os
 import sys
+from datetime import date # Importado para obter a data atual
 
 class DataManager:
     def __init__(self, db_name='agenda.db'):
-        # 1. Determinar o diretório base do aplicativo (onde o .py ou .exe está)
+        # Determinar o diretório base do aplicativo
         if getattr(sys, 'frozen', False):
-            # Se for executável (.exe), use o diretório temporário
             base_dir = os.path.dirname(sys.executable)
         else:
-            # Se for script (.py), use o diretório do script
             base_dir = os.path.dirname(os.path.abspath(__file__))
             
-        # 2. Definir o caminho completo da pasta 'Data'
+        # Definir e criar a pasta 'Data'
         data_folder = os.path.join(base_dir, 'Data')
-        
-        # 3. Criar a pasta 'Data' se ela não existir
         if not os.path.exists(data_folder):
             os.makedirs(data_folder)
         
-        # 4. Definir o caminho completo do banco de dados
+        # Definir o caminho completo do banco de dados
         db_path = os.path.join(data_folder, db_name)
         
-        # Conectar ao banco de dados no novo caminho
+        # Conectar ao banco de dados
         self.conn = sqlite3.connect(db_path)
         self.cursor = self.conn.cursor()
         
         self._create_table()
 
     def _create_table(self):
-        """
-        Cria a tabela 'compromissos' com a nova estrutura de 7 campos.
-        (Remover o arquivo agenda.db antigo é ESSENCIAL para que esta nova estrutura seja criada!)
-        """
+        """ Cria a tabela 'compromissos' com todos os campos necessários. """
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS compromissos (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,7 +84,6 @@ class DataManager:
             FROM compromissos 
             WHERE id = ?;
         """, (compromisso_id,))
-        # Retorna o primeiro (e único) resultado
         return self.cursor.fetchone()
 
     def update_compromisso(self, compromisso_id, data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes):
@@ -107,7 +100,27 @@ class DataManager:
             print(f"Erro ao atualizar compromisso: {e}")
             return False
 
+    def get_future_appointments(self):
+        """ Retorna todos os compromissos com data estritamente MAIOR que a data atual. """
+        today_str = date.today().strftime("%Y-%m-%d")
+        self.cursor.execute("""
+            SELECT id, data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes 
+            FROM compromissos 
+            WHERE data > ?
+            ORDER BY data ASC, hora ASC;
+        """, (today_str,))
+        return self.cursor.fetchall()
+
+    def get_past_appointments(self):
+        """ Retorna todos os compromissos com data MENOR ou IGUAL à data atual. """
+        today_str = date.today().strftime("%Y-%m-%d")
+        self.cursor.execute("""
+            SELECT id, data, hora, nome_cliente, tipo_visita, local_visita, endereco, quem_vai, observacoes 
+            FROM compromissos 
+            WHERE data <= ?
+            ORDER BY data DESC, hora DESC;
+        """, (today_str,))
+        return self.cursor.fetchall()
+
     def close(self):
         self.conn.close()
-
-# FIM do arquivo database.py
