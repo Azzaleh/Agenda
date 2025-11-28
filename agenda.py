@@ -1,4 +1,7 @@
+import requests 
+import os
 import sys
+import subprocess
 from PyQt5.QtWidgets import (
     QApplication, QWidget, QHBoxLayout, QVBoxLayout, 
     QCalendarWidget, QListWidget, QLabel, QPushButton,
@@ -6,13 +9,18 @@ from PyQt5.QtWidgets import (
     QGraphicsDropShadowEffect, QListWidgetItem, QDesktopWidget,
     QComboBox, QTextEdit
 )
-from PyQt5.QtCore import QDate, Qt, QTime, QSize
-from PyQt5.QtGui import QColor 
+from PyQt5.QtCore import QDate, Qt, QTime, QSize, QThread, pyqtSignal, QCoreApplication, QUrl, QTimer # ⬅️ QTimer ADICIONADO
+from PyQt5.QtGui import QColor,QTextCharFormat 
+from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
-# IMPORTAÇÃO DO BACKEND SEPARADO
 from database import DataManager
 
-# --- QSS STYLES (Mantido) ---
+
+GITHUB_REPO = "Azzaleh/Agenda"
+CURRENT_VERSION = "1.1"
+DOWNLOAD_FILENAME = "AgendaDataServis.exe"
+
+# --- QSS STYLES (Corrigido para Azul Claro Fixo no Dia Atual) ---
 QSS_STYLES = """
     /* Fundo Geral e Fonte */
     QWidget {
@@ -39,26 +47,33 @@ QSS_STYLES = """
         color: #333333;
     }
     
-    /* 1. DIA SELECIONADO (VERDE CLARO) - MAIOR PRIORIDADE */
-    QCalendarWidget QAbstractItemView::item:selected {
-        background-color: #ccffcc; /* Verde Claro */
-        color: #333333; /* Texto escuro */
-        border: 1px solid #99cc99;
-        border-radius: 4px;
+    QCalendarWidget QAbstractItemView::item {
+        background: transparent;
+        color: #333;
     }
 
-    /* 2. DIA ATUAL (AZUL) - Aplicado SOMENTE se não estiver selecionado */
-    QCalendarWidget QAbstractItemView::item:!selected:today {
-        background-color: #007acc; /* Azul escuro para Hoje */
+    /* 1. DIA SELECIONADO (AZUL ESCURO) - Aplicado SOMENTE se NÃO for o dia atual */
+    QCalendarWidget QAbstractItemView::item:selected:!today {
+        background-color: #007acc; /* Azul Escuro para Seleção */
         color: white; /* Texto branco */
-        border-radius: 4px;
         border: 1px solid #007acc;
+        border-radius: 4px;
     }
     
-    /* 3. Estilo para o dia atual quando estiver selecionado */
+    /* 2. DIA ATUAL (AZUL CLARO FIXO) - Aplicado quando NÃO ESTÁ selecionado */
+    QCalendarWidget QAbstractItemView::item:!selected:today {
+        background-color: #90CAF9; /* Azul Claro Fixo */
+        color: #333333; /* Texto escuro */
+        border-radius: 4px;
+        border: 1px solid #64B5F6;
+    }
+
+    /* 3. DIA ATUAL E SELECIONADO (AZUL CLARO FIXO) - Aplicado quando você clica no dia atual */
     QCalendarWidget QAbstractItemView::item:selected:today {
-        background-color: #ccffcc;
-        color: #333333;
+        background-color: #90CAF9; /* Azul Claro Fixo */
+        color: #333333; /* Texto escuro */
+        border-radius: 4px;
+        border: 1px solid #64B5F6;
     }
 
     /* Título (QLabel) do Painel Lateral */
@@ -79,10 +94,16 @@ QSS_STYLES = """
         border-radius: 8px;
     }
     
-    QListWidget::item {
-        padding: 10px;
+    QListWidget {
         border-bottom: 1px solid #f0f0f0;
-        font-size: 11pt;
+    }
+
+    QListWidget::item {
+        border-bottom: 1px solid #f0f0f0;
+    }
+
+    QListWidget::item:selected {
+        border-bottom: 1px solid #f0f0f0;
     }
     
     /* Botões de Ação (Estilo Base) */
@@ -129,7 +150,7 @@ QSS_STYLES = """
     }
 """
 
-# --- FUNÇÕES AUXILIARES GLOBAIS (CORREÇÃO DE ESCOPO) ---
+# --- FUNÇÕES AUXILIARES GLOBAIS ---
 
 def get_color_by_type(tipo_visita):
     """ Mapeia o tipo de visita para uma cor de fundo. """
@@ -138,7 +159,6 @@ def get_color_by_type(tipo_visita):
         "Visita Técnica": "#ffecc2", 
         "Outro": "#96fffa",          
     }
-    # Retorna a cor mapeada ou um branco/cinza claro padrão
     return colors.get(tipo_visita, "#ffffff")
 
 def _center_window(widget):
@@ -156,6 +176,68 @@ def _apply_shadow(widget, blur_radius=15, color_alpha=80):
     shadow.setYOffset(4)
     shadow.setColor(QColor(0, 0, 0, color_alpha))
     widget.setGraphicsEffect(shadow)
+
+# --- CLASSE UPDATER (QThread) ---
+
+class Updater(QThread):
+    update_available = pyqtSignal(str, str) # Emite (versão, download_url)
+    update_error = pyqtSignal(str)
+    verification_finished = pyqtSignal(bool) # 🛑 NOVO SINAL ADICIONADO AQUI
+    
+    def run(self):
+        try:
+            # 1. Requisição à API do GitHub para pegar a última release
+            api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+            response = requests.get(api_url, timeout=5)
+            
+            if response.status_code != 200:
+                self.update_error.emit("Erro ao acessar API do GitHub. Código: " + str(response.status_code))
+                self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO DE API
+                return
+
+            latest_release = response.json()
+            # Remove "v" do início e pega a versão da tag
+            latest_version_raw = latest_release.get("tag_name", "v0.0").lstrip('v')
+            
+            # 2. Comparação de Versões (USANDO APENAS MAIOR.MENOR)
+            if self._is_new_version(latest_version_raw, CURRENT_VERSION):
+                
+                download_url = None
+                # Encontra o arquivo .exe anexo (asset)
+                for asset in latest_release.get("assets", []):
+                    if asset.get("name") == DOWNLOAD_FILENAME:
+                        download_url = asset.get("browser_download_url")
+                        break
+                
+                if download_url:
+                    self.update_available.emit(latest_version_raw, download_url)
+                    # Não emitimos finished aqui, pois o processo de update continua
+                else:
+                    self.update_error.emit(f"Arquivo '{DOWNLOAD_FILENAME}' não encontrado na release.")
+                    self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO DE ARQUIVO
+            else:
+                self.verification_finished.emit(True) # 🛑 EMITIR APÓS SUCESSO (Versão atualizada)
+            
+        except requests.exceptions.ConnectionError:
+            self.update_error.emit("Erro de conexão de rede.")
+            self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO DE CONEXÃO
+        except Exception as e:
+            self.update_error.emit(f"Erro inesperado na verificação: {e}")
+            self.verification_finished.emit(False) # 🛑 EMITIR APÓS ERRO GERAL
+
+    def _is_new_version(self, new_raw, current_raw):
+        # 🛑 Lógica para comparar apenas MAIOR e MENOR.
+        
+        # Garante que temos apenas dois números (X.Y)
+        new_parts = list(map(int, new_raw.split('.')))[:2]
+        current_parts = list(map(int, current_raw.split('.')))[:2]
+        
+        # Preenche com zeros se for necessário (ex: 1 vs 1.0)
+        max_len = max(len(new_parts), len(current_parts))
+        new_parts.extend([0] * (max_len - len(new_parts)))
+        current_parts.extend([0] * (max_len - len(current_parts)))
+        
+        return new_parts > current_parts
 
 # --- WIDGET PERSONALIZADO PARA O ITEM DA LISTA (3 LINHAS DE LAYOUT) ---
 
@@ -199,6 +281,8 @@ class AppointmentItemWidget(QWidget):
         type_label = QLabel(f'<span style="{title_style}">Tipo:</span><span style="{content_style}"> {tipo_visita}</span>')
         location_line.addWidget(type_label)
         
+                                                                                                                                            
+
         # Local
         local_label = QLabel(f'<span style="{title_style}">Local:</span><span style="{content_style}"> {local_display}</span>')
         local_label.setWordWrap(True)
@@ -227,7 +311,7 @@ class AppointmentItemWidget(QWidget):
         main_layout.addLayout(detail_line)
         
         # AUMENTO DE ALTURA (Mínimo de 80px para comportar 3 linhas)
-        self.setMinimumHeight(80) 
+        self.setMinimumHeight(80)
         self.setStyleSheet("background-color: transparent;")
 
 # --- DIÁLOGO DE ADIÇÃO/EDIÇÃO DE EVENTO ---
@@ -395,15 +479,39 @@ class AgendaApp(QWidget):
         # Inicialização do DB Manager
         self.db_manager = DataManager()
         
-        self.setWindowTitle("Agenda Data Servis")
+        # 🛑 Título base é definido no set_window_title para incluir status
+        self.set_window_title() 
         self.init_ui()
         
+        # 🟦 NOVO: Armazena o último dia verificado para o timer
+        self.last_checked_date = QDate.currentDate() # ⬅️ ADICIONADO
+
+    def set_window_title(self, status=""):
+        """Atualiza o título da janela com o status atual."""
+        base_title = "Agenda Data Servis"
+        if status:
+            self.setWindowTitle(f"{base_title} [{status}]")
+        else:
+            self.setWindowTitle(base_title)
+            
     def init_ui(self):
         app.setStyleSheet(QSS_STYLES)
+        
+        # 🛑 Defina o status inicial aqui, antes do layout
+        self.set_window_title("Verificando Atualizações...") 
         
         main_layout = QHBoxLayout()
 
         self.calendar = QCalendarWidget()
+        self.highlight_today() # ⬅️ CHAME AQUI APÓS CRIAR O CALENDÁRIO
+
+        today_format = QTextCharFormat()
+        today_format.setBackground(QColor("#6DFFC2"))  # Azul claro
+        today_format.setForeground(QColor("#333333"))  # Texto escuro
+        today_format.setFontWeight(75)  # Negrito opcional
+
+        # Aplica ao dia de hoje (Este trecho será substituído pelo highlight_today)
+        self.calendar.setDateTextFormat(QDate.currentDate(), today_format)
         self.calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader) 
         self.calendar.setGridVisible(False) 
         self.calendar.setSelectedDate(QDate.currentDate())
@@ -451,6 +559,18 @@ class AgendaApp(QWidget):
 
         self.update_daily_appointments()
         
+        # 🕒 NOVO: Timer para atualizar automaticamente o dia atual (a cada 60 segundos)
+        self.date_check_timer = QTimer(self) # ⬅️ ADICIONADO
+        self.date_check_timer.timeout.connect(self.check_and_update_day) # ⬅️ ADICIONADO
+        self.date_check_timer.start(60000) # 60.000 ms = 60 segundos # ⬅️ ADICIONADO
+        
+        # Inicia o verificador de atualização
+        self.updater = Updater()
+        self.updater.update_available.connect(self.prompt_update)
+        self.updater.update_error.connect(self.handle_updater_error)
+        self.updater.verification_finished.connect(self.handle_verification_finished) # 🛑 CONEXÃO ADICIONADA
+        self.updater.start()
+        
     # MÉTODO DE ATUALIZAÇÃO (CORRIGIDO: Horizontal + Cor)
     def update_daily_appointments(self):
         selected_date_qdate = self.calendar.selectedDate()
@@ -484,7 +604,6 @@ class AgendaApp(QWidget):
                 # Define a cor do fundo
                 color_hex = get_color_by_type(tipo_visita)
                 item.setBackground(QColor(color_hex))
-                
                 # Define o tamanho e atribui o widget
                 item.setSizeHint(item_widget.sizeHint())
                 self.appointment_list.setItemWidget(item, item_widget)
@@ -605,12 +724,164 @@ class AgendaApp(QWidget):
             else:
                 QMessageBox.critical(self, "Erro", "Falha ao excluir o compromisso no banco de dados.")
 
+    # --- MÉTODOS DE ATUALIZAÇÃO DE STATUS ---
+    
+    def handle_verification_finished(self, success):
+        """Atualiza o título da janela após a verificação estar completa."""
+        if success:
+            self.set_window_title(f"Versão {CURRENT_VERSION} Atualizada")
+        else:
+            # Mantém o título limpo (após erro/falha de conexão)
+            self.set_window_title() 
+            
+    def handle_updater_error(self, message):
+        print(f"Erro do Updater: {message}")
+        QMessageBox.warning(self, "Erro de Atualização", f"Falha ao verificar atualizações. {message}")
 
+    def prompt_update(self, version, download_url):
+        reply = QMessageBox.question(self, "Atualização Disponível", 
+            f"Uma nova versão ({version}) está disponível. Deseja atualizar agora?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Inicia o download (usando QNetworkAccessManager para não travar a UI)
+            self.download_manager = QNetworkAccessManager(self)
+            self.download_manager.finished.connect(self.handle_download_finished)
+            
+            request = QNetworkRequest(QUrl(download_url))
+            self.reply = self.download_manager.get(request)
+            
+            # Mostra uma mensagem de download em andamento (Opcional, mas recomendado)
+            self.download_msg = QMessageBox(self)
+            self.download_msg.setText("Baixando atualização... Por favor, aguarde.")
+            self.download_msg.setWindowTitle("Baixando")
+            self.download_msg.setStandardButtons(QMessageBox.NoButton)
+            self.download_msg.show()
+
+    def handle_download_finished(self, reply: QNetworkReply):
+        if hasattr(self, 'download_msg'):
+            self.download_msg.close()
+
+        if reply.error() != QNetworkReply.NoError:
+            QMessageBox.critical(self, "Erro de Download", f"Falha ao baixar arquivo: {reply.errorString()}")
+            return
+            
+        new_exe_data = reply.readAll()
+        current_exe_path = os.path.abspath(sys.argv[0])
+        new_exe_name = "AgendaDataServis_new.exe"
+        temp_new_exe_path = os.path.join(os.path.dirname(current_exe_path), new_exe_name)
+
+        try:
+            # Salva o novo .exe com um nome temporário
+            with open(temp_new_exe_path, 'wb') as f:
+                f.write(new_exe_data.data())
+        except Exception as e:
+            QMessageBox.critical(self, "Erro de Arquivo", f"Não foi possível salvar o novo executável: {e}")
+            return
+
+        # 🛑 CHAVE DA ATUALIZAÇÃO: Executar um script externo para substituir o arquivo
+        self.execute_update_script(current_exe_path, temp_new_exe_path)
+
+
+    def execute_update_script(self, old_path, new_path):
+        """
+        Cria e executa um script temporário (batch/shell) que:
+        1. Espera o aplicativo atual fechar.
+        2. Exclui a versão antiga.
+        3. Renomeia o novo executável para o nome original.
+        4. Cria o atalho na área de trabalho.
+        5. Inicia a nova versão.
+        6. Se for Windows, usa VBScript para criar o atalho e apaga a si mesmo.
+        """
+        
+        # Cria o script de atualização (Exemplo Windows Batch)
+        script_content = f"""
+@echo off
+ECHO Aguardando o aplicativo principal fechar...
+timeout /t 3 /nobreak >nul
+
+ECHO Excluindo a versão antiga...
+del /f /q "{old_path}"
+
+ECHO Renomeando nova versão...
+ren "{new_path}" "{os.path.basename(old_path)}"
+
+ECHO Criando atalho na Área de Trabalho e iniciando nova versão...
+call :CreateShortcutAndRun "{os.path.dirname(old_path)}\\{os.path.basename(old_path)}" "{DOWNLOAD_FILENAME}"
+
+ECHO Limpando script...
+del /f /q "%~f0"
+EXIT
+
+:CreateShortcutAndRun
+    SET "TargetExe=%~1"
+    SET "ShortcutName=Agenda Data Servis"
+    
+    ECHO Set WshShell = CreateObject("WScript.Shell") > tmp.vbs
+    ECHO DesktopPath = WshShell.SpecialFolders("Desktop") >> tmp.vbs
+    ECHO Set oShellLink = WshShell.CreateShortcut(DesktopPath ^& "\%ShortcutName%.lnk") >> tmp.vbs
+    ECHO oShellLink.TargetPath = "%TargetExe%" >> tmp.vbs
+    ECHO oShellLink.Save >> tmp.vbs
+    ECHO WshShell.Run Chr(34) ^& "%TargetExe%" ^& Chr(34), 1, False >> tmp.vbs
+    cscript //nologo tmp.vbs
+    del tmp.vbs
+goto :EOF
+"""
+        
+        script_path = os.path.join(os.path.dirname(old_path), "update_script.bat")
+        
+        try:
+            with open(script_path, "w") as f:
+                f.write(script_content)
+                
+            # Executa o script e força o fechamento do app atual
+            subprocess.Popen([script_path], creationflags=subprocess.CREATE_NO_WINDOW)
+            QCoreApplication.quit() # Fecha a aplicação PyQt atual
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Erro de Execução", f"Falha ao executar script de atualização: {e}")
+
+    def highlight_today(self):
+        today = QDate.currentDate()
+        today_format = QTextCharFormat()
+        today_format.setBackground(QColor("#90CAF9"))  # Azul claro fixo
+        today_format.setForeground(QColor("#333333"))  # Texto escuro
+        today_format.setFontWeight(75)  # Negrito
+
+        # Aplica o formato ao dia atual
+        self.calendar.setDateTextFormat(today, today_format)
+        
+    def check_and_update_day(self): # ⬅️ NOVO MÉTODO
+        """
+        Verifica se a data do sistema mudou e atualiza o destaque do calendário.
+        Chamado pelo QTimer a cada 60 segundos.
+        """
+        today = QDate.currentDate()
+
+        # Se o dia mudou (virou meia-noite)
+        if today != self.last_checked_date:
+            # 1. Atualiza a cor do dia atual
+            self.highlight_today()  
+            # 2. Seleciona automaticamente o novo dia
+            self.calendar.setSelectedDate(today)  
+            # 3. Atualiza a lista de compromissos do novo dia
+            self.update_daily_appointments()  
+            
+        # Atualiza o último dia verificado
+        self.last_checked_date = today # ⬅️ ATUALIZA A VARIÁVEL
+        
     def closeEvent(self, event):
         self.db_manager.close()
         event.accept()
 
 if __name__ == '__main__':
+    # Verifica se está sendo executado como um executável PyInstaller
+    if getattr(sys, 'frozen', False):
+        application_path = os.path.dirname(sys.executable)
+    else:
+        application_path = os.path.dirname(os.path.abspath(__file__))
+
     app = QApplication(sys.argv)
     window = AgendaApp()
     window.showMaximized()
